@@ -63,7 +63,19 @@ export class RegisterRequestDto {
 }
 
 export class SendMessageDto {
-  
   @IsString()
   public readonly message: string;
+}
+
+export class OneToOneChatDto {
+  @IsString()
+  public readonly message: string;
+
+  @IsString()
+  public readonly userId: string;
+}
+
+export class SubscribeDto {
+  @IsString()
+  public readonly topic: string;
 }

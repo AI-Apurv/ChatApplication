@@ -16,4 +16,6 @@ export const userResponse = {
   TRANSACTION_SUCCESS: 'Transaction completed successfully',
   EMAIL_SUCCESS: 'Email sent successfully',
   EMAIL_FAIL: 'Error sending email',
+  USERNAME_EXIST:
+    'This username is already used by someone. Try some other username',
 };

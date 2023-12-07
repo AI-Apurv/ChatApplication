@@ -14,7 +14,7 @@ export class KafkaProducerService {
     this.producer = this.kafka.producer();
   }
 
-  async sendToKafka(topic: string, data: any){
+  async sendToKafka(topic: string, data: any) {
     await this.producer.connect();
     await this.producer.send({
       topic,

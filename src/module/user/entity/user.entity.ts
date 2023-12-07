@@ -19,6 +19,9 @@ export class Users extends Document {
 
   @Prop()
   contactNumber: string;
+
+  @Prop({ type: [String], default: [] })
+  topics: string[];
 }
 
 export const UserSchema = SchemaFactory.createForClass(Users);

@@ -3,11 +3,16 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Users } from './entity/user.entity';
 import { Model } from 'mongoose';
 import { RedisService } from 'src/providers/redis/redis.service';
-import { LoginRequestDto, RegisterRequestDto, SendMessageDto } from './dto/user.dto';
+import {
+  LoginRequestDto,
+  OneToOneChatDto,
+  RegisterRequestDto,
+} from './dto/user.dto';
 import { userResponse } from 'src/common/user.response';
 import { Sessions } from './entity/session.entity';
 import { JwtService } from './jwt.service';
 import { KafkaProducerService } from 'src/providers/kafka/producer.service';
+import { KafkaConsumerService } from 'src/providers/kafka/consumer.service';
 
 @Injectable()
 export class UserService {
@@ -18,12 +23,16 @@ export class UserService {
     private readonly sessionModel: Model<Sessions>,
     private readonly redisService: RedisService,
     private readonly jwtService: JwtService,
-    private readonly kafkaProducerService: KafkaProducerService
+    private readonly kafkaProducerService: KafkaProducerService,
+    private readonly kafkaConsumerService: KafkaConsumerService,
   ) {}
 
   public async register(registerRequestDto: RegisterRequestDto) {
     const user: Users = await this.userModel.findOne({
       email: registerRequestDto.email,
+    });
+    const userName: Users = await this.userModel.findOne({
+      userName: registerRequestDto.userName,
     });
     if (user) {
       return {
@@ -32,12 +41,21 @@ export class UserService {
         error: null,
       };
     }
+    if (userName) {
+      return {
+        status: HttpStatus.CONFLICT,
+        response: userResponse.USERNAME_EXIST,
+        error: null,
+      };
+    }
     const newUser = new this.userModel({
       firstName: registerRequestDto.firstName,
       lastName: registerRequestDto.lastName,
       userName: registerRequestDto.userName,
       email: registerRequestDto.email,
-      password: await this.jwtService.encodePassword(registerRequestDto.password),
+      password: await this.jwtService.encodePassword(
+        registerRequestDto.password,
+      ),
       contactNumber: registerRequestDto.contactNumber,
     });
     await newUser.save();
@@ -60,6 +78,18 @@ export class UserService {
         error: null,
       };
     }
+    const isPasswordValid = await this.jwtService.isPasswordValid(
+      loginRequestDto.password,
+      user.password,
+    );
+    if (!isPasswordValid) {
+      return {
+        status: HttpStatus.NOT_FOUND,
+        response: userResponse.WRONG_PASS,
+        error: null,
+        token: null,
+      };
+    }
     await this.redisService.redisSet(user.email, true, 3600);
     const session = await this.sessionModel.findOne({ email: user.email });
     if (!session) {
@@ -72,16 +102,9 @@ export class UserService {
       session.isActive = true;
       await session.save();
     }
-    const isPasswordValid = await this.jwtService.isPasswordValid(loginRequestDto.password, user.password);
-    if (!isPasswordValid) {
-      return {
-        status: HttpStatus.NOT_FOUND,
-        response: userResponse.WRONG_PASS,
-        error: null,
-        token: null,
-      };
-    }
-    const token: string = this.jwtService.generateToken(user)
+    const token: string = this.jwtService.generateToken(user);
+    await this.kafkaConsumerService.setUserActivity(true);
+    await this.kafkaConsumerService.startConsumer(user.topics);
     return {
       token,
       status: HttpStatus.OK,
@@ -90,12 +113,14 @@ export class UserService {
     };
   }
 
-  public async logout(userId: string) {
-    const user: Users = await this.userModel.findOne({ _id: userId });
+  public async logout(email: string) {
+    const user: Users = await this.userModel.findOne({ email: email });
     await this.redisService.redisSet(user.email, false, 7200);
     const session = await this.sessionModel.findOne({ email: user.email });
     session.isActive = false;
     session.save();
+    await this.kafkaConsumerService.setUserActivity(false);
+    await this.kafkaConsumerService.stopConsumer()
     return {
       status: HttpStatus.OK,
       response: userResponse.LOGOUT_SUCCESS,
@@ -103,7 +128,82 @@ export class UserService {
     };
   }
 
-  public async sendMessage(sendMessageDto: SendMessageDto){
-    await this.kafkaProducerService.sendToKafka('groupChat',sendMessageDto.message)
+  public async sendMessage(message: string, email: string) {
+    const user = await this.userModel.findOne({ email: email });
+    const topic = 'groupChat';
+    if (!user.topics.includes(topic)) {
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        response: 'You are not subscribed to the groupChat topic',
+        error: null,
+      };
+    }
+
+    const kafkaPayload = {
+      sender: user.firstName,
+      message: message,
+      time: Date.now(),
+    };
+    await this.kafkaProducerService.sendToKafka(topic, kafkaPayload);
+
+    return {
+      status: HttpStatus.OK,
+      response: 'Message sent successfully',
+      error: null,
+    };
+  }
+
+  public async subscribeToTopic(topic: string, email: string) {
+    const user = await this.userModel.findOne({ email: email });
+    if (!user.topics.includes(topic)) {
+      user.topics.push(topic);
+      await user.save();
+    }
+
+    return {
+      status: HttpStatus.OK,
+      response: `Subscribed to ${topic} successfully`,
+      error: null,
+    };
+  }
+
+  public async sendOneToOne(body: OneToOneChatDto, email: string) {
+    const receiver = await this.userModel.findOne({ _id: body.userId });
+    if (!receiver)
+      return {
+        status: HttpStatus.NOT_FOUND,
+        response: userResponse.NOT_EXIST,
+        error: null,
+      };
+    const sender = await this.userModel.findOne({ email: email });
+    const sortedUsernames = [receiver.userName, sender.userName];
+    const topic = sortedUsernames.join('');
+    const receivertopicExists = receiver.topics.includes(topic);
+    if (!receivertopicExists) {
+      receiver.topics.push(topic);
+      await receiver.save();
+    }
+    const sendertopicExists = sender.topics.includes(topic);
+    if (!sendertopicExists) {
+      sender.topics.push(topic);
+      await sender.save();
+    }
+    console.log('------------->', topic);
+    this.sendToTopic(topic, body.message, sender.firstName);
+    return {
+      status: HttpStatus.OK,
+      response: 'Message sent successfully',
+      error: null,
+    };
+  }
+
+  public async sendToTopic(topic: string, message: string, sender: string) {
+    const kafkaPayload = {
+      sender: sender,
+      message: message,
+      time: Date.now(),
+    };
+    await this.kafkaConsumerService.stopConsumer()
+    await this.kafkaProducerService.sendToKafka(topic, kafkaPayload);
   }
 }
