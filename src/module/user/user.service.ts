@@ -13,6 +13,7 @@ import { Sessions } from './entity/session.entity';
 import { JwtService } from './jwt.service';
 import { KafkaProducerService } from 'src/providers/kafka/producer.service';
 import { KafkaConsumerService } from 'src/providers/kafka/consumer.service';
+import { Message, MessageStatus } from './entity/message.entity';
 
 @Injectable()
 export class UserService {
@@ -21,6 +22,8 @@ export class UserService {
     private readonly userModel: Model<Users>,
     @InjectModel(Sessions.name)
     private readonly sessionModel: Model<Sessions>,
+    @InjectModel(Message.name)
+    private readonly messageModel: Model<Message>,
     private readonly redisService: RedisService,
     private readonly jwtService: JwtService,
     private readonly kafkaProducerService: KafkaProducerService,
@@ -176,7 +179,7 @@ export class UserService {
         error: null,
       };
     const sender = await this.userModel.findOne({ email: email });
-    const sortedUsernames = [receiver.userName, sender.userName];
+    const sortedUsernames = [receiver.userName, sender.userName].sort();
     const topic = sortedUsernames.join('');
     const receivertopicExists = receiver.topics.includes(topic);
     if (!receivertopicExists) {
@@ -188,8 +191,16 @@ export class UserService {
       sender.topics.push(topic);
       await sender.save();
     }
-    console.log('------------->', topic);
     this.sendToTopic(topic, body.message, sender.firstName);
+    const newMessage = new this.messageModel({
+      topic: topic,
+      SenderName: sender.firstName,
+      ReceiverName: receiver.firstName,
+      message: body.message,
+      messageStatus: MessageStatus.SENT,
+      createdAt: new Date()
+    });
+    await newMessage.save();
     return {
       status: HttpStatus.OK,
       response: 'Message sent successfully',
@@ -203,7 +214,7 @@ export class UserService {
       message: message,
       time: Date.now(),
     };
-    await this.kafkaConsumerService.stopConsumer()
+    this.kafkaConsumerService.stopConsumer();
     await this.kafkaProducerService.sendToKafka(topic, kafkaPayload);
   }
 }
