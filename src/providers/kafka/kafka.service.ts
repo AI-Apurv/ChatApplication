@@ -14,10 +14,6 @@ export class KafkaService {
     this.consumer = this.kafka.consumer({ groupId: 'kafka-group' });
   }
 
-  // getProducer() {
-  //   return this.kafka.producer();
-  // }
-  
   getConsumer() {
     return this.consumer;
   }

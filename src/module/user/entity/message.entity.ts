@@ -2,17 +2,16 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
 export enum MessageStatus {
-    SENT = 'sent',
-    DELIEVERED = 'delievered',
-    SEEN = 'seen'
+  SENT = 'sent',
+  DELIEVERED = 'delievered',
+  SEEN = 'seen',
 }
 
 @Schema()
 export class Message extends Document {
-
   @Prop()
-  topic: string
-  
+  topic: string;
+
   @Prop()
   SenderName: string;
 
@@ -22,10 +21,13 @@ export class Message extends Document {
   @Prop()
   message: string;
 
-  @Prop({type: String, enum: MessageStatus})
-  messageStatus: string
+  @Prop({ type: String, enum: MessageStatus })
+  messageStatus: string;
 
-  @Prop({type: Date, default: Date.now})
+  @Prop()
+  tempId: string;
+
+  @Prop({ type: Date, default: Date.now })
   createdAt: Date;
 }
 

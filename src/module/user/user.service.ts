@@ -4,6 +4,7 @@ import { Users } from './entity/user.entity';
 import { Model } from 'mongoose';
 import { RedisService } from 'src/providers/redis/redis.service';
 import {
+  FileSendDto,
   LoginRequestDto,
   OneToOneChatDto,
   RegisterRequestDto,
@@ -123,49 +124,10 @@ export class UserService {
     session.isActive = false;
     session.save();
     await this.kafkaConsumerService.setUserActivity(false);
-    await this.kafkaConsumerService.stopConsumer()
+    await this.kafkaConsumerService.stopConsumer();
     return {
       status: HttpStatus.OK,
       response: userResponse.LOGOUT_SUCCESS,
-      error: null,
-    };
-  }
-
-  public async sendMessage(message: string, email: string) {
-    const user = await this.userModel.findOne({ email: email });
-    const topic = 'groupChat';
-    if (!user.topics.includes(topic)) {
-      return {
-        status: HttpStatus.BAD_REQUEST,
-        response: 'You are not subscribed to the groupChat topic',
-        error: null,
-      };
-    }
-
-    const kafkaPayload = {
-      sender: user.firstName,
-      message: message,
-      time: Date.now(),
-    };
-    await this.kafkaProducerService.sendToKafka(topic, kafkaPayload);
-
-    return {
-      status: HttpStatus.OK,
-      response: 'Message sent successfully',
-      error: null,
-    };
-  }
-
-  public async subscribeToTopic(topic: string, email: string) {
-    const user = await this.userModel.findOne({ email: email });
-    if (!user.topics.includes(topic)) {
-      user.topics.push(topic);
-      await user.save();
-    }
-
-    return {
-      status: HttpStatus.OK,
-      response: `Subscribed to ${topic} successfully`,
       error: null,
     };
   }
@@ -191,14 +153,16 @@ export class UserService {
       sender.topics.push(topic);
       await sender.save();
     }
-    this.sendToTopic(topic, body.message, sender.firstName);
+    const tempMessageId = this.generateTempMessageId();
+    this.sendToTopic(topic, body.message, sender.firstName, tempMessageId);
     const newMessage = new this.messageModel({
       topic: topic,
       SenderName: sender.firstName,
       ReceiverName: receiver.firstName,
       message: body.message,
       messageStatus: MessageStatus.SENT,
-      createdAt: new Date()
+      tempId: tempMessageId,
+      createdAt: new Date(),
     });
     await newMessage.save();
     return {
@@ -208,13 +172,88 @@ export class UserService {
     };
   }
 
-  public async sendToTopic(topic: string, message: string, sender: string) {
+  public async sendFileOneToOne(body: FileSendDto, file: any, email: string) {
+    const receiver = await this.userModel.findOne({ _id: body.userId });
+    if (!receiver)
+      return {
+        status: HttpStatus.NOT_FOUND,
+        response: userResponse.NOT_EXIST,
+        error: null,
+      };
+    const sender = await this.userModel.findOne({ email: email });
+    const sortedUsernames = [receiver.userName, sender.userName].sort();
+    const topic = sortedUsernames.join('');
+    const receivertopicExists = receiver.topics.includes(topic);
+    if (!receivertopicExists) {
+      receiver.topics.push(topic);
+      await receiver.save();
+    }
+    const sendertopicExists = sender.topics.includes(topic);
+    if (!sendertopicExists) {
+      sender.topics.push(topic);
+      await sender.save();
+    }
+    const tempMessageId = this.generateTempMessageId();
+    this.sendToTopic(topic, file, sender.firstName, tempMessageId);
+    const newMessage = new this.messageModel({
+      topic: topic,
+      SenderName: sender.firstName,
+      ReceiverName: receiver.firstName,
+      message: file,
+      messageStatus: MessageStatus.SENT,
+      tempId: tempMessageId,
+      createdAt: new Date(),
+    });
+    await newMessage.save();
+    return {
+      status: HttpStatus.OK,
+      response: 'Message sent successfully',
+      error: null,
+    };
+  }
+
+  public async getMessage(userId: string, email: string) {
+    const sender = await this.userModel.findOne({ _id: userId });
+    const receiver = await this.userModel.findOne({ email: email });
+    const sortedUsernames = [receiver.userName, sender.userName].sort();
+    const topic = sortedUsernames.join('');
+
+    const messages = await this.messageModel.find(
+      { topic: topic, messageStatus: MessageStatus.DELIEVERED },
+      { SenderName: 1, message: 1 },
+    );
+    for (const message of messages) {
+      if (message.messageStatus !== MessageStatus.SEEN) {
+        message.messageStatus = MessageStatus.SEEN;
+        await message.save();
+      }
+    }
+    return {
+      status: HttpStatus.OK,
+      response:
+        'Messages retrieved and marked as seen starting from "delivered" successfully',
+      messages,
+      error: null,
+    };
+  }
+
+  public async sendToTopic(
+    topic: string,
+    message: any,
+    sender: string,
+    tempId: string,
+  ) {
     const kafkaPayload = {
       sender: sender,
       message: message,
+      tempId: tempId,
       time: Date.now(),
     };
     this.kafkaConsumerService.stopConsumer();
     await this.kafkaProducerService.sendToKafka(topic, kafkaPayload);
+  }
+
+  public generateTempMessageId() {
+    return Math.random().toString(36).substring(2) + Date.now().toString(36);
   }
 }

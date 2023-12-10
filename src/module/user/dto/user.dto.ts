@@ -79,3 +79,14 @@ export class SubscribeDto {
   @IsString()
   public readonly topic: string;
 }
+
+export class FileSendDto {
+  image: any;
+
+  @IsString()
+  userId: string;
+}
+
+export class GetMessageDto {
+  userId: string;
+}

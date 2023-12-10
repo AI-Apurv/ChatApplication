@@ -5,17 +5,8 @@ export const userResponse = {
   WRONG_PASS: 'Incorrect password',
   LOGIN_SUCCESS: 'logged in successfully',
   LOGOUT_SUCCESS: 'Logout success',
-  UPDATE_SUCCESS: 'Details updated successfully',
-  PASS_RESET: 'Password reset successfully',
-  PASS_RESET_FAIL: 'Password reset failed ',
-  PASS_CHANGE: 'Password change successfully',
   INVALID_TOKEN: 'You are not authorised',
   LOGOUT: 'User has logged out . please login again',
-  SAME_PASS: 'New password should be different from old password',
-  AMOUNT_ADDED: 'Amount added to the wallet',
-  TRANSACTION_SUCCESS: 'Transaction completed successfully',
-  EMAIL_SUCCESS: 'Email sent successfully',
-  EMAIL_FAIL: 'Error sending email',
   USERNAME_EXIST:
     'This username is already used by someone. Try some other username',
 };

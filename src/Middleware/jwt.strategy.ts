@@ -1,7 +1,6 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { UserService } from 'src/module/user/user.service';
 import { Users } from 'src/module/user/entity/user.entity';
 import { userResponse } from 'src/common/user.response';
 import { InjectModel } from '@nestjs/mongoose';
@@ -30,9 +29,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException(userResponse.LOGOUT);
 
     return {
-      userId: payload.sub,
+      userId: payload.id,
       email: payload.email,
-      role: payload.role,
     };
   }
 }
