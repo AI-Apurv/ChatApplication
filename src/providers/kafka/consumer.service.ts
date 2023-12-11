@@ -13,30 +13,47 @@ export class KafkaConsumerService {
   ) {}
   private isActive = false;
   private consumer = this.kafkaService.getConsumer();
+  private consumer2 = this.kafkaService.getConsumer2();
+  private consumerActive = false;
+  private consumer2Active = false;
+  private selectedConsumer;
+  private activeConsumers: { [email: string]: any } = {};
 
-  async startConsumer(topics: string[]) {
-    await this.consumer.stop();
+  async startConsumer(topics: string[], email: string) {
     if (this.isActive) {
+      if (this.consumerActive) {
+        this.consumer2Active = true;
+        this.selectedConsumer = this.consumer2;
+        this.activeConsumers[email] = this.consumer2;
+      }
+      if (!this.consumer2Active) {
+        this.consumerActive = true;
+        this.selectedConsumer = this.consumer;
+        this.activeConsumers[email] = this.consumer;
+      }
       topics.forEach((topic) => {
-        this.consumer.subscribe({ topic, fromBeginning: true });
+        this.selectedConsumer.subscribe({ topic, fromBeginning: true });
       });
-      await this.consumer.run({
+      await this.selectedConsumer.run({
         autoCommit: false,
         eachMessage: async ({ topic, partition, message }) => {
           try {
             const chat = JSON.parse(message.value.toString());
             const { tempId, ...data } = chat;
-            console.log({ partition, offset: message.offset, data });
-            const temporaryMessageId = chat.tempId;
-            await this.processAndMarkDelivered(temporaryMessageId);
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            await this.consumer.commitOffsets([
-              {
-                topic,
-                partition,
-                offset: (Number(message.offset) + 1).toString(),
-              },
-            ]);
+            if (chat.sender !== email) {
+              console.log({ partition, offset: message.offset, data });
+              const temporaryMessageId = chat.tempId;
+              await this.processAndMarkDelivered(temporaryMessageId);
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+              await this.selectedConsumer.commitOffsets([
+                {
+                  topic,
+                  partition,
+                  offset: (Number(message.offset) + 1).toString(),
+                },
+              ]);
+            }
+            email;
           } catch (error) {
             console.log('Error parsing kafka message', error);
           }
@@ -62,7 +79,11 @@ export class KafkaConsumerService {
     }
   }
 
-  stopConsumer() {
-    this.kafkaService.getConsumer().stop();
+  stopConsumer(email: string) {
+    const activeConsumer = this.activeConsumers[email];
+    if (activeConsumer) {
+      activeConsumer.stop();
+      delete this.activeConsumers[email];
+    }
   }
 }

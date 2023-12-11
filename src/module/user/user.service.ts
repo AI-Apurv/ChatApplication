@@ -108,7 +108,7 @@ export class UserService {
     }
     const token: string = this.jwtService.generateToken(user);
     await this.kafkaConsumerService.setUserActivity(true);
-    await this.kafkaConsumerService.startConsumer(user.topics);
+    await this.kafkaConsumerService.startConsumer(user.topics, user.email);
     return {
       token,
       status: HttpStatus.OK,
@@ -124,7 +124,7 @@ export class UserService {
     session.isActive = false;
     session.save();
     await this.kafkaConsumerService.setUserActivity(false);
-    await this.kafkaConsumerService.stopConsumer();
+    await this.kafkaConsumerService.stopConsumer(email);
     return {
       status: HttpStatus.OK,
       response: userResponse.LOGOUT_SUCCESS,
@@ -154,7 +154,7 @@ export class UserService {
       await sender.save();
     }
     const tempMessageId = this.generateTempMessageId();
-    this.sendToTopic(topic, body.message, sender.firstName, tempMessageId);
+    this.sendToTopic(topic, body.message, sender.email, tempMessageId);
     const newMessage = new this.messageModel({
       topic: topic,
       SenderName: sender.firstName,
@@ -240,16 +240,15 @@ export class UserService {
   public async sendToTopic(
     topic: string,
     message: any,
-    sender: string,
+    senderEmail: string,
     tempId: string,
   ) {
     const kafkaPayload = {
-      sender: sender,
+      sender: senderEmail,
       message: message,
       tempId: tempId,
       time: Date.now(),
     };
-    this.kafkaConsumerService.stopConsumer();
     await this.kafkaProducerService.sendToKafka(topic, kafkaPayload);
   }
 
